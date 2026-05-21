@@ -1,0 +1,5 @@
+bin/
+*.db
+*.sqlite
+*.zip
+dep-sentinel-osv.zip
