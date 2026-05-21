@@ -32,6 +32,8 @@ func run() error {
 		return cmdLicenses(os.Args[2:])
 	case "outdated":
 		return cmdOutdated(os.Args[2:])
+	case "status":
+		return cmdStatus(os.Args[2:])
 	default:
 		usage()
 		return nil
@@ -45,7 +47,8 @@ Commands:
   scan      --dir <path>  [--db <path>] [--no-network] [--osv-cache <path>]
   vulns     --dir <path>  [--db <path>] [--min-severity high|medium|low]
   licenses  --dir <path>  [--db <path>]
-  outdated  --dir <path>  [--db <path>] [--major-only]`)
+  outdated  --dir <path>  [--db <path>] [--major-only]
+  status    --dir <path>  [--db <path>]`)
 }
 
 func openDB(dbPath, dir string) (*store.Store, error) {
@@ -160,6 +163,52 @@ func cmdLicenses(args []string) error {
 		}
 		fmt.Printf("%-50s  %-10s  %-20s  %s\n", m.Path, m.Version, lic, direct)
 	}
+	return nil
+}
+
+// cmdStatus shows the last scan summary.
+func cmdStatus(args []string) error {
+	fs := flag.NewFlagSet("status", flag.ExitOnError)
+	dir := fs.String("dir", ".", "Path to Go project")
+	dbPath := fs.String("db", "", "SQLite DB path")
+	_ = fs.Parse(args)
+
+	s, err := openDB(*dbPath, *dir)
+	if err != nil {
+		return err
+	}
+	defer s.Close()
+
+	lastScan, _ := s.GetMeta("last_scan")
+	scannedDir, _ := s.GetMeta("scanned_dir")
+
+	if lastScan == "" {
+		fmt.Println("No scan recorded. Run `dep scan --dir <path>` first.")
+		return nil
+	}
+
+	fmt.Printf("Last scan:  %s\n", lastScan)
+	fmt.Printf("Directory:  %s\n", scannedDir)
+
+	vulns, _ := s.QueryVulns("low")
+	mods, _ := s.QueryBadLicenses()
+	outdated, _ := s.QueryOutdated(false)
+
+	critCount, highCount, medCount := 0, 0, 0
+	for _, v := range vulns {
+		switch v.Severity {
+		case "critical":
+			critCount++
+		case "high":
+			highCount++
+		default:
+			medCount++
+		}
+	}
+
+	fmt.Printf("Vulns:      %d critical, %d high, %d medium/low\n", critCount, highCount, medCount)
+	fmt.Printf("Licenses:   %d problematic or unknown\n", len(mods))
+	fmt.Printf("Outdated:   %d modules with updates available\n", len(outdated))
 	return nil
 }
 

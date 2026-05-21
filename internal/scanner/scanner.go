@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/leazelaya/dep-sentinel/internal/licenses"
@@ -50,7 +51,37 @@ func Run(s *store.Store, opts Options) error {
 	}
 	opts.log("%d modules found", len(mods))
 
-	// 2. Upsert modules with license info; collect latest versions if network allowed.
+	// 2. Fetch latest versions concurrently (up to 10 parallel proxy calls).
+	type latestResult struct {
+		path   string
+		latest string
+	}
+	latestMap := make(map[string]string, len(mods))
+	if !opts.NoNetwork {
+		opts.log("fetching latest versions from proxy.golang.org…")
+		sem := make(chan struct{}, 10)
+		results := make(chan latestResult, len(mods))
+		var wg sync.WaitGroup
+		for _, m := range mods {
+			wg.Add(1)
+			go func(path string) {
+				defer wg.Done()
+				sem <- struct{}{}
+				latest := modules.LatestVersion(path)
+				<-sem
+				results <- latestResult{path, latest}
+			}(m.Path)
+		}
+		wg.Wait()
+		close(results)
+		for r := range results {
+			if r.latest != "" {
+				latestMap[r.path] = r.latest
+			}
+		}
+	}
+
+	// 3. Upsert modules with license info and latest versions.
 	modIDs := make(map[string]int64, len(mods))
 	for _, m := range mods {
 		if isPrivate(m.Path) {
@@ -60,12 +91,6 @@ func Run(s *store.Store, opts Options) error {
 
 		licID := modules.LicenseFile(m.Path, m.Version, m.Dir)
 		licOK := licenses.IsOK(licID)
-
-		latest := ""
-		if !opts.NoNetwork {
-			latest = modules.LatestVersion(m.Path)
-		}
-
 		direct := 1
 		if m.Indirect {
 			direct = 0
@@ -74,7 +99,7 @@ func Run(s *store.Store, opts Options) error {
 		id, err := s.UpsertModule(store.Module{
 			Path:          m.Path,
 			Version:       m.Version,
-			LatestVersion: latest,
+			LatestVersion: latestMap[m.Path],
 			License:       licID,
 			LicenseOK:     licOK,
 			Direct:        direct,
@@ -86,7 +111,7 @@ func Run(s *store.Store, opts Options) error {
 		modIDs[m.Path] = id
 	}
 
-	// 3. Vulnerability scan.
+	// 4. Vulnerability scan.
 	if vulns.GovulncheckAvailable() {
 		opts.log("running govulncheck…")
 		findings, err := vulns.RunGovulncheck(opts.Dir)
