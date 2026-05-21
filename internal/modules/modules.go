@@ -114,21 +114,37 @@ func pathEscape(p string) string {
 	return sb.String()
 }
 
-// LicenseFile finds a LICENSE file in the module's local cache directory.
-func LicenseFile(dir string) string {
-	if dir == "" {
-		return ""
+// LicenseFile finds a LICENSE file for a module. Checks dir first (from go list),
+// then falls back to the Go module cache at $GOPATH/pkg/mod.
+func LicenseFile(modulePath, version, dir string) string {
+	dirs := []string{dir}
+	if gopath := os.Getenv("GOPATH"); gopath == "" {
+		if home, err := os.UserHomeDir(); err == nil {
+			dirs = append(dirs, modCachePath(home+"/go/pkg/mod", modulePath, version))
+		}
+	} else {
+		dirs = append(dirs, modCachePath(gopath+"/pkg/mod", modulePath, version))
 	}
-	for _, name := range []string{"LICENSE", "LICENSE.md", "LICENSE.txt", "LICENCE", "COPYING"} {
-		path := dir + "/" + name
-		if _, err := os.Stat(path); err == nil {
-			data, err := os.ReadFile(path)
+
+	for _, d := range dirs {
+		if d == "" {
+			continue
+		}
+		for _, name := range []string{"LICENSE", "LICENSE.md", "LICENSE.txt", "LICENCE", "COPYING"} {
+			data, err := os.ReadFile(d + "/" + name)
 			if err == nil {
 				return DetectLicense(string(data))
 			}
 		}
 	}
 	return ""
+}
+
+// modCachePath returns the local cache path for a module in $GOPATH/pkg/mod.
+// Capital letters are escaped as !lowercase per the module proxy protocol.
+func modCachePath(modRoot, modulePath, version string) string {
+	escaped := pathEscape(modulePath)
+	return modRoot + "/" + escaped + "@" + version
 }
 
 // DetectLicense returns an SPDX identifier by matching known license text snippets.

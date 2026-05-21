@@ -235,18 +235,89 @@ func cvssToSeverity(score float64) string {
 	}
 }
 
-// LookupModule finds OSV entries affecting a given module path.
-func LookupModule(db []OSVEntry, modulePath string) []OSVEntry {
+// LookupModule finds OSV entries affecting modulePath at currentVersion.
+// Entries where the current version is >= the fixed version are skipped.
+func LookupModule(db []OSVEntry, modulePath, currentVersion string) []OSVEntry {
 	var out []OSVEntry
 	for _, e := range db {
 		for _, a := range e.Affected {
-			if a.Package == modulePath || strings.HasPrefix(modulePath, a.Package) {
-				out = append(out, e)
-				break
+			if a.Package != modulePath {
+				continue
 			}
+			if !isAffected(a.Ranges, currentVersion) {
+				break // current version not in affected range — skip
+			}
+			out = append(out, e)
+			break
 		}
 	}
 	return out
+}
+
+// isAffected returns true if currentVersion falls within an affected SEMVER range.
+// A version is affected when: current >= introduced AND (no fixed OR current < fixed).
+func isAffected(ranges []OSVRange, currentVersion string) bool {
+	for _, r := range ranges {
+		if r.Type != "SEMVER" {
+			continue
+		}
+		// Walk events to collect (introduced, fixed) pairs.
+		introduced := "0"
+		fixed := ""
+		for _, ev := range r.Events {
+			if ev.Introduced != "" {
+				introduced = ev.Introduced
+			}
+			if ev.Fixed != "" {
+				fixed = ev.Fixed
+			}
+		}
+		intro := introduced
+		if intro == "0" {
+			intro = "v0.0.0"
+		}
+		afterIntro := semverGTE(currentVersion, intro)
+		beforeFixed := fixed == "" || !semverGTE(currentVersion, fixed)
+		if afterIntro && beforeFixed {
+			return true
+		}
+	}
+	return false
+}
+
+// semverGTE returns true if a >= b for Go module versions.
+// Handles v1.2.3 and pseudo-versions v0.0.0-20230101-hash.
+func semverGTE(a, b string) bool {
+	ap := parseSemver(a)
+	bp := parseSemver(b)
+	for i := range ap {
+		if i >= len(bp) {
+			return true
+		}
+		if ap[i] > bp[i] {
+			return true
+		}
+		if ap[i] < bp[i] {
+			return false
+		}
+	}
+	return len(ap) >= len(bp)
+}
+
+func parseSemver(v string) []int {
+	v = strings.TrimPrefix(v, "v")
+	// Handle pseudo-versions: strip pre-release suffix after first '-'
+	if idx := strings.Index(v, "-"); idx >= 0 {
+		v = v[:idx]
+	}
+	parts := strings.Split(v, ".")
+	nums := make([]int, 0, 3)
+	for _, p := range parts {
+		n := 0
+		fmt.Sscanf(p, "%d", &n)
+		nums = append(nums, n)
+	}
+	return nums
 }
 
 // FixedVersion returns the first "fixed" version from an OSV entry for a module.

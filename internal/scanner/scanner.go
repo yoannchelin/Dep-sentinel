@@ -58,7 +58,7 @@ func Run(s *store.Store, opts Options) error {
 			continue
 		}
 
-		licID := modules.LicenseFile(m.Dir)
+		licID := modules.LicenseFile(m.Path, m.Version, m.Dir)
 		licOK := licenses.IsOK(licID)
 
 		latest := ""
@@ -143,7 +143,7 @@ func runOSVFallback(s *store.Store, mods []modules.Info, modIDs map[string]int64
 		if !ok {
 			continue
 		}
-		entries := vulns.LookupModule(osvDB, m.Path)
+		entries := vulns.LookupModule(osvDB, m.Path, m.Version)
 		for _, e := range entries {
 			fixedIn := vulns.FixedVersion(e, m.Path)
 			if err := s.InsertVuln(store.Vuln{
