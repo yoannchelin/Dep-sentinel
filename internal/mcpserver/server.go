@@ -229,7 +229,7 @@ func toolList() []map[string]any {
 	return []map[string]any{
 		{
 			"name":        "vulnerability_report",
-			"description": "CVEs and security vulnerabilities in Go dependencies, grouped by module with fix versions",
+			"description": "CVEs and security vulnerabilities in Go and npm dependencies, grouped by package with fix versions",
 			"inputSchema": map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -242,12 +242,12 @@ func toolList() []map[string]any {
 		},
 		{
 			"name":        "license_audit",
-			"description": "Modules with problematic (AGPL, GPL, SSPL) or unknown licenses that require legal review",
+			"description": "Go modules and npm packages with problematic (AGPL, GPL, SSPL) or unknown licenses that require legal review",
 			"inputSchema": map[string]any{"type": "object", "properties": map[string]any{}},
 		},
 		{
 			"name":        "outdated_modules",
-			"description": "Go modules where a newer version is available on proxy.golang.org",
+			"description": "Go modules and npm packages where a newer version is available",
 			"inputSchema": map[string]any{
 				"type": "object",
 				"properties": map[string]any{

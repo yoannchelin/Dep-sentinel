@@ -41,7 +41,8 @@ CREATE TABLE IF NOT EXISTS dep_modules (
     license_ok     INTEGER NOT NULL DEFAULT 1,
     last_commit_ts INTEGER,
     is_abandoned   INTEGER NOT NULL DEFAULT 0,
-    direct         INTEGER NOT NULL DEFAULT 1
+    direct         INTEGER NOT NULL DEFAULT 1,
+    ecosystem      TEXT NOT NULL DEFAULT 'go'
 );
 
 CREATE TABLE IF NOT EXISTS dep_vulnerabilities (
@@ -61,7 +62,12 @@ CREATE TABLE IF NOT EXISTS dep_meta (
     value TEXT NOT NULL
 );
 `)
-	return err
+	if err != nil {
+		return err
+	}
+	// For DBs created before the ecosystem column was added.
+	_, _ = s.db.Exec(`ALTER TABLE dep_modules ADD COLUMN ecosystem TEXT NOT NULL DEFAULT 'go'`)
+	return nil
 }
 
 // SetMeta stores a key-value pair.
@@ -88,9 +94,12 @@ func (s *Store) ClearModules() error {
 
 // UpsertModule inserts or updates a module row, returning its id.
 func (s *Store) UpsertModule(m Module) (int64, error) {
+	if m.Ecosystem == "" {
+		m.Ecosystem = "go"
+	}
 	res, err := s.db.Exec(`
-INSERT INTO dep_modules(path,version,latest_version,license,license_ok,last_commit_ts,is_abandoned,direct)
-VALUES(?,?,?,?,?,?,?,?)
+INSERT INTO dep_modules(path,version,latest_version,license,license_ok,last_commit_ts,is_abandoned,direct,ecosystem)
+VALUES(?,?,?,?,?,?,?,?,?)
 ON CONFLICT(path) DO UPDATE SET
   version=excluded.version,
   latest_version=excluded.latest_version,
@@ -98,9 +107,10 @@ ON CONFLICT(path) DO UPDATE SET
   license_ok=excluded.license_ok,
   last_commit_ts=excluded.last_commit_ts,
   is_abandoned=excluded.is_abandoned,
-  direct=excluded.direct`,
+  direct=excluded.direct,
+  ecosystem=excluded.ecosystem`,
 		m.Path, m.Version, m.LatestVersion, m.License, m.LicenseOK,
-		m.LastCommitTS, m.IsAbandoned, m.Direct)
+		m.LastCommitTS, m.IsAbandoned, m.Direct, m.Ecosystem)
 	if err != nil {
 		return 0, err
 	}
@@ -165,7 +175,7 @@ ORDER BY
 // QueryBadLicenses returns modules with non-OK or unknown licenses.
 func (s *Store) QueryBadLicenses() ([]Module, error) {
 	rows, err := s.db.Query(`
-SELECT id,path,version,latest_version,license,license_ok,last_commit_ts,is_abandoned,direct
+SELECT id,path,version,latest_version,license,license_ok,last_commit_ts,is_abandoned,direct,ecosystem
 FROM dep_modules WHERE license_ok=0 OR license IS NULL OR license=''
 ORDER BY path`)
 	if err != nil {
@@ -178,7 +188,7 @@ ORDER BY path`)
 // QueryOutdated returns modules where latest_version != version.
 func (s *Store) QueryOutdated(majorOnly bool) ([]Module, error) {
 	q := `
-SELECT id,path,version,latest_version,license,license_ok,last_commit_ts,is_abandoned,direct
+SELECT id,path,version,latest_version,license,license_ok,last_commit_ts,is_abandoned,direct,ecosystem
 FROM dep_modules WHERE latest_version IS NOT NULL AND latest_version!='' AND latest_version!=version
 ORDER BY path`
 	rows, err := s.db.Query(q)
@@ -203,15 +213,19 @@ func scanModules(rows *sql.Rows) ([]Module, error) {
 	var out []Module
 	for rows.Next() {
 		var m Module
-		var latest, license sql.NullString
+		var latest, license, ecosystem sql.NullString
 		var lastTS sql.NullInt64
 		if err := rows.Scan(&m.ID, &m.Path, &m.Version, &latest, &license,
-			&m.LicenseOK, &lastTS, &m.IsAbandoned, &m.Direct); err != nil {
+			&m.LicenseOK, &lastTS, &m.IsAbandoned, &m.Direct, &ecosystem); err != nil {
 			return nil, err
 		}
 		m.LatestVersion = latest.String
 		m.License = license.String
 		m.LastCommitTS = lastTS.Int64
+		m.Ecosystem = ecosystem.String
+		if m.Ecosystem == "" {
+			m.Ecosystem = "go"
+		}
 		out = append(out, m)
 	}
 	return out, rows.Err()

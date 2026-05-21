@@ -144,6 +144,14 @@ func Run(s *store.Store, opts Options) error {
 		}
 	}
 
+	// 5. NPM scan if package.json exists in the same directory.
+	if _, err := os.Stat(filepath.Join(opts.Dir, "package.json")); err == nil {
+		opts.log("package.json detected — scanning npm dependencies…")
+		if err := runNPMScan(s, opts); err != nil {
+			opts.log("npm scan warning: %v", err)
+		}
+	}
+
 	_ = s.SetMeta("last_scan", time.Now().UTC().Format(time.RFC3339))
 	_ = s.SetMeta("scanned_dir", opts.Dir)
 	opts.log("scan complete")

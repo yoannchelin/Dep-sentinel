@@ -2,17 +2,18 @@ package store
 
 import "strings"
 
-// Module represents a Go module dependency.
+// Module represents a dependency (Go module or npm package).
 type Module struct {
 	ID            int64
 	Path          string
 	Version       string
 	LatestVersion string
 	License       string
-	LicenseOK     int // 1 = OK, 0 = problematic or unknown
+	LicenseOK     int    // 1 = OK, 0 = problematic or unknown
 	LastCommitTS  int64
 	IsAbandoned   int
-	Direct        int // 1 = direct dependency, 0 = transitive
+	Direct        int    // 1 = direct dependency, 0 = transitive
+	Ecosystem     string // "go" or "npm"
 }
 
 // Vuln is a vulnerability to insert.

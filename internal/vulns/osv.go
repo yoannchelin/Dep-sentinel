@@ -13,7 +13,10 @@ import (
 	"time"
 )
 
-const osvURL = "https://osv-vulnerabilities.storage.googleapis.com/Go/all.zip"
+const (
+	osvURL    = "https://osv-vulnerabilities.storage.googleapis.com/Go/all.zip"
+	OSVNpmURL = "https://osv-vulnerabilities.storage.googleapis.com/npm/all.zip"
+)
 
 // OSVEntry is a minimal parsed OSV vulnerability record.
 type OSVEntry struct {
@@ -40,9 +43,14 @@ type OSVEvent struct {
 	Fixed      string
 }
 
-// LoadOSVDB loads the OSV Go database. If cachePath exists and is recent enough
-// (within maxAge), it reads from cache; otherwise downloads and caches.
+// LoadOSVDB loads the OSV Go database from cache or network.
 func LoadOSVDB(cachePath string, maxAge time.Duration) ([]OSVEntry, error) {
+	return LoadOSVDBFromURL(osvURL, cachePath, maxAge)
+}
+
+// LoadOSVDBFromURL loads an OSV ecosystem database from the given URL.
+// If cachePath exists and is recent enough (within maxAge), it reads from cache.
+func LoadOSVDBFromURL(url, cachePath string, maxAge time.Duration) ([]OSVEntry, error) {
 	var zipData []byte
 
 	info, err := os.Stat(cachePath)
@@ -52,9 +60,9 @@ func LoadOSVDB(cachePath string, maxAge time.Duration) ([]OSVEntry, error) {
 			return nil, fmt.Errorf("read osv cache: %w", err)
 		}
 	} else {
-		zipData, err = downloadOSV()
+		zipData, err = downloadOSV(url)
 		if err != nil {
-			// If we have a stale cache, use it rather than failing.
+			// Use stale cache rather than failing completely.
 			if _, serr := os.Stat(cachePath); serr == nil {
 				zipData, _ = os.ReadFile(cachePath)
 			}
@@ -70,9 +78,9 @@ func LoadOSVDB(cachePath string, maxAge time.Duration) ([]OSVEntry, error) {
 	return parseOSVZip(zipData)
 }
 
-func downloadOSV() ([]byte, error) {
+func downloadOSV(url string) ([]byte, error) {
 	client := &http.Client{Timeout: 60 * time.Second}
-	resp, err := client.Get(osvURL)
+	resp, err := client.Get(url)
 	if err != nil {
 		return nil, err
 	}
