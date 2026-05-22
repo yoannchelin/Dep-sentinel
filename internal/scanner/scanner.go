@@ -90,7 +90,13 @@ func Run(s *store.Store, opts Options) error {
 		}
 
 		licID := modules.LicenseFile(m.Path, m.Version, m.Dir)
-		licOK := licenses.IsOK(licID)
+		// license_ok=0 only when we know the license is problematic (AGPL, GPL, etc.).
+		// Unknown/empty licenses get benefit-of-the-doubt (licOK=1) to avoid
+		// flooding the report with false "bad license" entries.
+		licOK := 1
+		if licenses.Classify(licID) == "problematic" {
+			licOK = 0
+		}
 		direct := 1
 		if m.Indirect {
 			direct = 0
